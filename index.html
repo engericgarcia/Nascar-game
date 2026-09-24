@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Oval 500">
+<title>Oval 500 — Stock Car</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css?v=1">
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+
+<!-- controles de toque -->
+<div id="controls" class="hidden">
+  <div id="topbar">
+    <button id="btnPause" class="tb" aria-label="Pausar">❚❚</button>
+    <button id="btnCam" class="tb" aria-label="Trocar câmera">🎥<span id="camName">Perseguição</span></button>
+    <button id="btnService" class="tb small" aria-label="Serviço do box"><span id="svcName">4 pneus + gás</span></button>
+    <button id="btnBox" class="tb box" aria-label="Pedir box">BOX</button>
+  </div>
+  <div id="steer"><span class="arr l">◀</span><div id="steerKnob"></div><span class="arr r">▶</span></div>
+  <div id="pedals">
+    <div id="brake" class="pedal"><div class="plate"><span>FREIO</span></div></div>
+    <div id="gas" class="pedal"><div class="plate"><span>GÁS</span></div></div>
+  </div>
+</div>
+
+<!-- menus -->
+<div id="menu" class="screen">
+  <div class="title">
+    <div class="logo"><span class="o">OVAL</span><span class="n">500</span></div>
+    <div class="sub">STOCK CAR RACING · estilo NASCAR</div>
+  </div>
+  <div class="col">
+    <button class="big" data-go="quick">🏁 Corrida rápida</button>
+    <button class="big" data-go="season">🏆 Campeonato</button>
+    <button data-go="settings">⚙️ Ajustes</button>
+    <button data-go="help">❓ Como jogar</button>
+  </div>
+  <div class="foot">Funciona offline · instale pela opção “Adicionar à tela de início”</div>
+</div>
+
+<div id="setup" class="screen hidden">
+  <h2 id="setupTitle">Corrida rápida</h2>
+  <div id="trackList" class="tracks"></div>
+  <div class="opts">
+    <label>Voltas <select id="optLaps"></select></label>
+    <label>Carros <select id="optCars"><option value="20">20</option><option value="30" selected>30</option><option value="40">40</option></select></label>
+    <label>Dificuldade <select id="optDiff"><option value="facil">Fácil</option><option value="medio" selected>Médio</option><option value="dificil">Difícil</option></select></label>
+    <label>Largada <select id="optGrid"><option value="fundo">Último</option><option value="meio" selected>Meio do grid</option><option value="pole">Pole position</option><option value="aleatorio">Sorteio</option></select></label>
+  </div>
+  <div class="row">
+    <button data-go="menu">‹ Voltar</button>
+    <button id="btnStart" class="big go">LARGAR ›</button>
+  </div>
+</div>
+
+<div id="season" class="screen hidden">
+  <h2>Campeonato</h2>
+  <div id="seasonInfo"></div>
+  <div class="row">
+    <button data-go="menu">‹ Menu</button>
+    <button id="btnSeasonReset">Novo campeonato</button>
+    <button id="btnSeasonGo" class="big go">Próxima corrida ›</button>
+  </div>
+</div>
+
+<div id="settings" class="screen hidden">
+  <h2>Ajustes</h2>
+  <div class="set">
+    <label><input type="checkbox" id="setAssist"> Direção assistida (o carro acompanha a curva; você só muda de faixa)</label>
+    <label><input type="checkbox" id="setBrakeAssist"> Freio assistido (tira o pé e freia sozinho antes da curva)</label>
+    <label><input type="checkbox" id="setAutoGas"> Acelerador automático</label>
+    <label><input type="checkbox" id="setTilt"> Dirigir inclinando o celular</label>
+    <label><input type="checkbox" id="setSound"> Som</label>
+    <label><input type="checkbox" id="setVoice"> Voz do spotter (“carro por fora”, “livre”…)</label>
+    <label><input type="checkbox" id="setKmh"> Velocidade em km/h</label>
+    <label><input type="checkbox" id="setStages"> Corrida em estágios (pontos de estágio)</label>
+    <label>Combustível e pneus
+      <select id="setFuel"><option value="scaled">Proporcional à corrida (paradas garantidas)</option><option value="real">Real (tanque da Cup)</option><option value="off">Desligado</option></select></label>
+    <label>Qualidade gráfica
+      <select id="setQuality"><option value="0">Leve</option><option value="1">Normal</option><option value="2">Alta</option></select></label>
+    <label>Seu nome <input type="text" id="setName" maxlength="16"></label>
+  </div>
+  <div class="row"><button data-go="menu" class="big">OK</button></div>
+</div>
+
+<div id="help" class="screen hidden">
+  <h2>Como jogar</h2>
+  <div class="helptxt">
+    <p><b>Volante:</b> arraste o polegar na barra da esquerda — quanto mais longe do centro, mais o carro vira. Com a direção assistida ligada o carro faz a curva sozinho e você só escolhe a faixa.</p>
+    <p><b>Pedais:</b> GÁS e FREIO à direita. Encostar mais embaixo na placa = pisar mais fundo.</p>
+    <p><b>Vácuo:</b> cole atrás de outro carro na reta para ganhar velocidade e passar.</p>
+    <p><b>Curvas:</b> se entrar rápido demais o carro “sai de frente” e sobe para o muro. Alivie o gás.</p>
+    <p><b>Box:</b> toque em <b>BOX</b> e escolha o serviço (4 pneus, 2 pneus ou só gasolina). Na entrada do box o carro desce sozinho, respeita o limite de velocidade, para na sua vaga e a equipe de 5 pessoas trabalha.</p>
+    <p><b>Bandeiras:</b> verde = corrida; amarela = acidente/fim de estágio, o carro-madrinha entra e você segue em piloto automático (bom momento para ir ao box); relargada em fila dupla; branca = última volta; quadriculada = fim.</p>
+    <p><b>Câmeras:</b> 🎥 alterna entre cockpit (com painel e retrovisor), perseguição, TV (câmeras fixas com zoom, como na transmissão) e helicóptero.</p>
+    <p><b>Teclado:</b> setas/WASD, espaço freia, C câmera, B box, V serviço, P pausa.</p>
+    <p><b>Pontos:</b> vitória 55, 2º 35, 3º 34… estágios dão 10 a 1 aos dez primeiros, +1 pela volta mais rápida.</p>
+  </div>
+  <div class="row"><button data-go="menu" class="big">OK</button></div>
+</div>
+
+<div id="pause" class="screen hidden dim">
+  <h2>Pausa</h2>
+  <div class="col">
+    <button id="btnResume" class="big">Continuar</button>
+    <button id="btnCamP">Trocar câmera</button>
+    <button id="btnRestart">Reiniciar corrida</button>
+    <button id="btnQuit">Sair para o menu</button>
+  </div>
+</div>
+
+<div id="results" class="screen hidden">
+  <h2 id="resTitle">Resultado</h2>
+  <div id="resBody"></div>
+  <div class="row">
+    <button id="btnResMenu">Menu</button>
+    <button id="btnResNext" class="big go">Continuar ›</button>
+  </div>
+</div>
+
+<div id="loading" class="screen hidden"><h2>Preparando a pista…</h2></div>
+<div id="rotate" class="hidden">↻ Gire o celular para jogar deitado</div>
+
+<script type="module" src="js/main.js?v=1"></script>
+<script>
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+</script>
+</body>
+</html>
