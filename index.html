@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 <script type="importmap">
 { "imports": { "three": "./js/vendor/three.module.min.js" } }
 </script>
@@ -39,8 +39,10 @@
 <!-- menus -->
 <div id="menu" class="screen">
   <div class="title">
+    <div class="stripes"><i></i><i></i><i></i></div>
     <div class="logo"><span class="o">OVAL</span><span class="n">500</span></div>
-    <div class="sub">STOCK CAR RACING · estilo NASCAR</div>
+    <div class="checker"></div>
+    <div class="sub">STOCK CAR RACING · ESTILO NASCAR</div>
   </div>
   <div class="col">
     <button class="big" data-go="quick">🏁 Corrida rápida</button>
@@ -131,7 +133,7 @@
   </div>
 </div>
 
-<div id="loading" class="screen hidden"><h2>Preparando a pista…</h2></div>
+<div id="loading" class="screen hidden"><h2>Preparando a pista…</h2><div class="loadbar"><i></i></div></div>
 <div id="rotate" class="hidden">↻ Gire o celular para jogar deitado</div>
 
 <script type="module" src="js/main.js?v=1"></script>

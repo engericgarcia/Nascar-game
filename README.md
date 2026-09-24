@@ -44,6 +44,30 @@ Nenhum arquivo de imagem ou som: pista, carros, pinturas, painel e ronco do moto
   estágios 10 a 1 para os dez primeiros; +1 pela volta mais rápida. Fica salvo no aparelho.
 - **Resultado** com posição de largada, voltas, voltas lideradas, melhor volta e pontos.
 
+## Visual
+
+- **Carros Next Gen moldados** em dezenas de seções curvas: arcos de roda, capô caído, traseira alta,
+  cabine com vidros e colunas, aerofólio, splitter, retrovisores, rodas com aro e raios, escapamento lateral.
+  Pintura inteira gerada por equipe (5 estilos de desenho), número na porta e no teto, patrocinador no
+  capô, faróis adesivados, grade, rede da janela do piloto. Pintura com brilho e reflexo do céu.
+  Versão mais leve do carro quando está longe da câmera (para rodar liso no celular).
+- **Céu** em degradê com sol, nuvens e um dirigível dando voltas sobre a pista; cores com tone mapping.
+- **Arquibancadas em degraus** com torcida pixelada (camisas, bonés, bandeiras), camarotes envidraçados,
+  cobertura com pilares; muro SAFER com tubos e parafusos; placas de publicidade.
+- **Torre-placar** no infield mostrando os 10 primeiros ao vivo; **carrinhos e guarda-sóis** de cada
+  equipe no box; mecânicos em forma de gente (capacete, braços e pernas).
+- **Grama cortada em faixas**, logotipo pintado no infield, **árvores**, **estacionamento lotado**,
+  **motorhomes**, asfalto com emendas e manchas de borracha.
+- **Efeitos**: fumaça de pneu nas rodadas e nas derrapagens, **faíscas** raspando no muro ou em outro
+  carro, **marcas de pneu** que ficam no asfalto, fumaça de motor quando o carro está muito batido,
+  burnout do vencedor.
+- **HUD de transmissão**: placas inclinadas com degradê, classificação com as cores de cada carro,
+  conta-giros em arco com luzes de troca de marcha, bandeira tremulando, mapa com o seu carro pulsando.
+- **Cockpit**: painel de alumínio escovado com rebites, relógios com aro cromado e reflexo no vidro,
+  velocímetro de LCD, chaves de ignição, santantônio com espuma, rede da janela, tremor com a
+  velocidade e nas batidas.
+- **Menu com corrida ao vivo** rodando no fundo, trocando de câmera.
+
 ## Controles
 
 | Ação | Celular | Teclado |
@@ -93,7 +117,9 @@ navegador não carrega abrindo o arquivo direto.)
 | `js/track.js` | traçado do oval, inclinação, pit road e toda a pista 3D (asfalto, muro SAFER, alambrado, arquibancadas, pórtico da bandeira) |
 | `js/cars.js` | modelo do stock car, pinturas, carro-madrinha e equipe de box |
 | `js/sim.js` | física, vácuo, batidas, IA, box, bandeiras, estágios e resultado |
-| `js/view.js` | cena 3D e câmeras (cockpit, perseguição, TV, helicóptero, retrovisor) |
+| `js/view.js` | cena 3D, câmeras (cockpit, perseguição, TV, helicóptero, retrovisor) e efeitos nos carros |
+| `js/env.js` | céu, nuvens, reflexo do ambiente, dirigível, fumaça, faíscas e marcas de pneu |
+| `js/scenery.js` | arquibancadas, torre-placar, box das equipes, árvores, estacionamento, motorhomes |
 | `js/hud.js` | painel do cockpit e HUD |
 | `js/input.js` | toque, inclinação e teclado |
 | `js/audio.js` | motor V8 sintetizado, pelotão, pneus, batidas e voz do spotter |

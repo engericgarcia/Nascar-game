@@ -138,7 +138,7 @@ export class RaceSim {
     if (c.mode === 'pit') return this.pitControl(c, dt);
 
     const auto = this.state === 'formation' || this.state === 'caution' || c.finished;
-    if (c.player && !auto) {
+    if (c.player && !auto && !this.opts.demo) {
       // jogador
       c.throttle = c.fuel > 0 ? input.throttle : 0;
       c.brake = input.brake;
@@ -485,6 +485,8 @@ export class RaceSim {
       return;
     }
 
+    c.contact *= Math.exp(-5 * dt);
+    c.scrape = (c.scrape || 0) * Math.exp(-8 * dt);
     // --- longitudinal ---
     const powerK = this.track.def.power * c.power * (1 - 0.25 * c.damage);
     const fe = c.throttle * Math.min(8.2, PWR * powerK / Math.max(v, 1));
@@ -531,6 +533,7 @@ export class RaceSim {
       const ang = c.mode === 'spin' ? c.slide : c.psi;
       const vn = c.v * Math.sin(-ang);
       if (vn > 0) {
+        c.scrape = 1;
         if (c.mode === 'spin') {
           c.slide = -c.slide * 0.3; c.v *= 0.75;
           c.damage = Math.min(1, c.damage + vn * 0.03);
@@ -542,6 +545,7 @@ export class RaceSim {
         } else {
           c.v = Math.max(0, c.v - vn * 0.9 - 4 * dt);
           c.psi = 0.012;
+          c.scrape = 1;
           c.damage = Math.min(0.95, c.damage + vn * 0.006);
           c.contact = Math.max(c.contact, vn / 8);
           if (c.player) this.hit = { car: c, power: vn };

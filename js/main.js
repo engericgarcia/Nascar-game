@@ -138,7 +138,7 @@ function saveSettingsFromUI() {
   settings.stages = $('setStages').checked;
   settings.fuel = $('setFuel').value;
   const q = +$('setQuality').value;
-  if (q !== settings.quality && view) { view.renderer.dispose(); view = null; }
+  if (q !== settings.quality && view) { stopDemo(); view.renderer.dispose(); view = null; settings.quality = q; startDemo(); }
   settings.quality = q;
   settings.name = $('setName').value.trim() || 'Você';
   save(LS_SET, settings);
@@ -197,6 +197,7 @@ function startRace(cfg) {
 }
 
 function buildRace(cfg) {
+  stopDemo();
   if (!view) {
     view = new View($('gl'), settings.quality);
     hud = new Hud($('hud'));
@@ -265,7 +266,7 @@ function setPause(v) {
 $('btnResume').onclick = () => setPause(false);
 $('btnCamP').onclick = () => { Input.onCam(); };
 $('btnRestart').onclick = () => { running = false; startRace(race); };
-$('btnQuit').onclick = () => { running = false; Sound.update(sim.player, 0, 0, false); show('menu'); };
+$('btnQuit').onclick = () => { running = false; Sound.update(sim.player, 0, 0, false); show('menu'); startDemo(); };
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && running && !paused) setPause(true); });
 window.addEventListener('resize', () => { if (view) view.resize(); if (hud) hud.resize(); checkRotate(); measure(); });
@@ -292,8 +293,51 @@ async function requestWake() {
 let spotPrev = { left: false, right: false }, spotClearT = 0;
 let fpsAcc = 0, fpsN = 0;
 
+/* ---------------- corrida de demonstração no fundo do menu ---------------- */
+let demo = null, demoLast = 0;
+function startDemo() {
+  if (running) return;
+  try {
+    if (!view) { view = new View($('gl'), settings.quality); hud = new Hud($('hud')); }
+    else view.dispose();
+    const ti = Math.floor(Math.random() * TRACKS.length);
+    const tr = new Track(TRACKS[ti]);
+    const sm = new RaceSim(tr, makeField(24, 'Demo'), { laps: 999, difficulty: 'dificil', gridPos: 'meio', fuel: 'off', stages: false, demo: true });
+    const inp = { steer: 0, throttle: 0, brake: 0, assist: true };
+    for (let i = 0; i < 4000 && sm.state !== 'green'; i++) sm.update(1 / 20, inp);
+    for (let i = 0; i < 200; i++) sm.update(1 / 20, inp);
+    sm.events.length = 0;
+    track = tr;
+    view.setup(tr, sm);
+    demo = { sim: sm, t: 0, cam: 0, inp };
+    demoShot();
+    $('gl').classList.add('demo');
+    const hx = hud.x; hx.setTransform(1, 0, 0, 1, 0, 0); hx.clearRect(0, 0, hud.cv.width, hud.cv.height);
+  } catch (e) { console.error(e); demo = null; }
+}
+function demoShot() {
+  const cams = ['tv', 'heli', 'chase', 'tv'];
+  view.camMode = cams[demo.cam % cams.length];
+  const rk = demo.sim.ranking || demo.sim.cars;
+  view.focus = rk[Math.floor(Math.random() * Math.min(10, rk.length))];
+  view.first = true;
+  demo.cam++;
+}
+function stopDemo() { demo = null; $('gl').classList.remove('demo'); if (view) view.focus = null; }
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (demo && !running) {
+    let dt = Math.min(0.05, (now - demoLast) / 1000); demoLast = now;
+    if (dt <= 0) return;
+    demo.sim.update(dt, demo.inp);
+    demo.sim.events.length = 0; demo.sim.hit = null;
+    demo.t += dt;
+    if (demo.t > 7) { demo.t = 0; demoShot(); }
+    view.update(dt);
+    view.render();
+    return;
+  }
   if (!running || paused) return;
   let dt = (now - lastT) / 1000;
   lastT = now;
@@ -340,6 +384,7 @@ function frame(now) {
   if (sim.done) finishRace();
 }
 requestAnimationFrame(frame);
+setTimeout(startDemo, 50);
 
 /* ---------------- resultado ---------------- */
 function finishRace() {
@@ -376,7 +421,7 @@ function finishRace() {
   } else $('btnResNext').textContent = 'Correr de novo ›';
   show('results');
 }
-$('btnResMenu').onclick = () => show('menu');
+$('btnResMenu').onclick = () => { show('menu'); startDemo(); };
 $('btnResNext').onclick = () => { if (seasonMode) openSeason(); else startRace(race); };
 
 // Test hook para depuração no navegador

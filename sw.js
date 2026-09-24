@@ -1,10 +1,10 @@
 /* Service worker: guarda tudo no aparelho para o jogo abrir sem internet.
    Ao mudar qualquer arquivo, suba a versão do CACHE. */
-const CACHE = 'oval500-v1';
+const CACHE = 'oval500-v2';
 const ASSETS = [
-  './', './index.html', './style.css?v=1', './manifest.webmanifest',
+  './', './index.html', './style.css?v=2', './manifest.webmanifest',
   './js/main.js?v=1', './js/data.js', './js/track.js', './js/cars.js', './js/sim.js',
-  './js/view.js', './js/hud.js', './js/input.js', './js/audio.js',
+  './js/view.js', './js/hud.js', './js/env.js', './js/scenery.js', './js/input.js', './js/audio.js',
   './js/vendor/three.module.min.js', './js/vendor/BufferGeometryUtils.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];

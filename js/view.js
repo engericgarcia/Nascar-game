@@ -4,7 +4,9 @@
    helicóptero) + retrovisor no cockpit.
    ============================================================ */
 import * as THREE from 'three';
-import { makeCarMesh, makePaceCar, makeCrew } from './cars.js';
+import { makeCarMesh, makePaceCar, makeCrew, setCarQuality } from './cars.js';
+import { Sky, Effects, horizonColor, SUN_DIR } from './env.js';
+import { Pylon, buildPitBoxes } from './scenery.js';
 
 export const CAMS = ['cockpit', 'chase', 'tv', 'heli'];
 export const CAM_NAMES = { cockpit: 'Cockpit', chase: 'Perseguição', tv: 'TV', heli: 'Helicóptero' };
@@ -17,13 +19,13 @@ export class View {
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality >= 1, powerPreference: 'high-performance' });
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, [1, 1.5, 2][quality]));
     r.outputColorSpace = THREE.SRGBColorSpace;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.05;
+    setCarQuality(quality);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 7000);
     this.mirrorCam = new THREE.PerspectiveCamera(28, 4, 0.5, 900);
-    const hemi = new THREE.HemisphereLight(0xdfefff, 0x5a6a3a, 1.1);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-    sun.position.set(0.4, 1, 0.3);
-    this.scene.add(hemi, sun);
+    this.addLights();
     this.camMode = 'chase';
     this.tvIndex = 0;
     this.camPos = new THREE.Vector3();
@@ -31,6 +33,13 @@ export class View {
     this.camDir = new THREE.Vector3(0, 0, 1);
     this.first = true;
     this.resize();
+  }
+
+  addLights() {
+    const hemi = new THREE.HemisphereLight(0xe4f0ff, 0x5d6a44, 1.25);
+    const sun = new THREE.DirectionalLight(0xfff4e2, 2.4);
+    sun.position.copy(SUN_DIR);
+    this.scene.add(hemi, sun);
   }
 
   resize() {
@@ -45,17 +54,22 @@ export class View {
     this.track = track;
     this.sim = sim;
     const def = track.def;
-    this.scene.background = new THREE.Color(def.sky);
-    this.scene.fog = new THREE.Fog(def.sky, track.L > 3000 ? 900 : 500, track.L > 3000 ? 4200 : 2200);
+    const hz = horizonColor(def);
+    this.scene.background = hz;
+    this.scene.fog = new THREE.Fog(hz, track.L > 3000 ? 1100 : 600, track.L > 3000 ? 5200 : 2800);
     track.build(this.scene, this.quality);
     track.buildStalls(sim.cars.map(c => c.info));
+    buildPitBoxes(track, track.group, sim.cars.map(c => c.info));
+    this.pylon = new Pylon(track, track.group);
+    this.skyObj = new Sky(this.scene, this.renderer, def, track.center, track.radius, this.quality);
+    this.fx = new Effects(this.scene, this.quality);
     this.meshes = sim.cars.map(c => {
-      const m = makeCarMesh(c.info);
+      const m = makeCarMesh(c.info, this.quality);
       m.matrixAutoUpdate = false;
       this.scene.add(m);
       return m;
     });
-    this.pace = makePaceCar();
+    this.pace = makePaceCar(this.quality);
     this.pace.matrixAutoUpdate = false;
     this.scene.add(this.pace);
     // equipes de box (grupo reaproveitado entre carros)
@@ -120,11 +134,63 @@ export class View {
     if (pc.active) {
       this.carMatrix(pc.s, pc.d, 0, 0, this.pace.matrix);
       this.pace.matrixWorldNeedsUpdate = true;
-      const lb = this.pace.userData.lightbar;
-      lb.material.color.setHex(Math.floor(sim.t * 4) % 2 ? 0xffa500 : 0xffee55);
+      const [l1, l2] = this.pace.userData.lights;
+      const on = Math.floor(sim.t * 5) % 2;
+      l1.material.color.setHex(on ? 0xffb000 : 0x442200);
+      l2.material.color.setHex(on ? 0x442200 : 0xffb000);
     }
     this.updateCrews(dt);
+    this.updateEffects(dt);
     this.updateCamera(dt);
+    this.skyObj.update(sim.t, this.camera);
+    this.pylon.update(dt, sim.ranking);
+  }
+
+  /* fumaça, faíscas e marcas de pneu */
+  updateEffects(dt) {
+    const sim = this.sim, fx = this.fx;
+    const cars = sim.cars;
+    for (let i = 0; i < cars.length; i++) {
+      const c = cars[i], m = this.meshes[i];
+      if (!m.visible && !(this.camMode === 'cockpit' && c === (this.focus || sim.player))) continue;
+      const mm = m.matrix;
+      _x.setFromMatrixColumn(mm, 0).normalize();     // esquerda
+      _z.setFromMatrixColumn(mm, 2).normalize();     // frente
+      const spin = c.mode === 'spin';
+      const slide = c.over > 0.35 && c.v > 15;
+      const burn = c.finished && c.finishPos === 1 && sim.t - c.finishT > 3 && sim.t - c.finishT < 9;
+      const wheels = spin ? WHEEL_POS : WHEEL_POS.slice(2);
+      if (spin || slide || burn) {
+        wheels.forEach((w, k) => {
+          const wp = _w.set(w[0], 0.02, w[1]).applyMatrix4(mm);
+          fx.skid(i * 4 + k + (spin ? 0 : 2), wp, _x);
+          const rate = spin ? 30 : burn ? 45 : 6 + c.over * 10;
+          if (Math.random() < dt * rate) {
+            _v.copy(_z).multiplyScalar(c.v * 0.3).add(_r.set(Math.random() - 0.5, 1 + Math.random(), Math.random() - 0.5));
+            fx.smoke.emit(_w.set(w[0], 0.35, w[1]).applyMatrix4(mm), _v, 2.2, 2.6, SMOKE, 0.55, 3.2);
+          }
+        });
+      } else {
+        for (let k = 0; k < 4; k++) fx.endSkid(i * 4 + k);
+      }
+      // faíscas raspando no muro (lado direito) ou em outro carro
+      const sparkRate = (c.scrape || 0) * 90 + Math.max(0, c.contact - 0.3) * 60;
+      if (sparkRate > 1 && c.v > 10) {
+        const n = Math.min(6, Math.floor(sparkRate * dt + Math.random()));
+        for (let k = 0; k < n; k++) {
+          const side = c.scrape > 0.1 ? -0.98 : (Math.random() < 0.5 ? -0.98 : 0.98);
+          const p = _w.set(side, 0.25 + Math.random() * 0.4, (Math.random() - 0.3) * 4).applyMatrix4(mm);
+          _v.copy(_z).multiplyScalar(c.v * (0.55 + Math.random() * 0.3)).add(_r.set((Math.random() - 0.5) * 6, 2 + Math.random() * 4, (Math.random() - 0.5) * 6));
+          fx.sparks.emit(p, _v, 0.55, 0.35 + Math.random() * 0.35, Math.random() < 0.5 ? SPARK1 : SPARK2, 1, 0);
+        }
+      }
+      // carro muito danificado solta fumaça do motor
+      if (c.damage > 0.55 && c.mode !== 'dnf' && Math.random() < dt * 10) {
+        _v.copy(_z).multiplyScalar(c.v * 0.2).add(_r.set(0, 1.5, 0));
+        fx.smoke.emit(_w.set(0, 0.9, 2.0).applyMatrix4(mm), _v, 1.4, 2.2, DMG, 0.5, 2.2);
+      }
+    }
+    fx.update(dt);
   }
 
   updateCrews() {
@@ -260,6 +326,7 @@ export class View {
     const r = this.renderer;
     r.setScissorTest(false);
     r.setViewport(0, 0, this.w, this.h);
+    this.fx.setScale(r, this.camera);
     r.render(this.scene, this.camera);
     if (this.mirror) {
       // retrovisor: renderiza para trás numa textura e desenha espelhada
@@ -296,13 +363,15 @@ export class View {
       }
     });
     this.scene.clear();
-    const hemi = new THREE.HemisphereLight(0xdfefff, 0x5a6a3a, 1.1);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-    sun.position.set(0.4, 1, 0.3);
-    this.scene.add(hemi, sun);
+    if (this.scene.environment) { this.scene.environment.dispose(); this.scene.environment = null; }
+    this.addLights();
   }
 }
 
+const WHEEL_POS = [[0.84, 1.55], [-0.84, 1.55], [0.84, -1.45], [-0.84, -1.45]];
+const SMOKE = new THREE.Color(0.86, 0.86, 0.86), DMG = new THREE.Color(0.18, 0.18, 0.2);
+const SPARK1 = new THREE.Color(1, 0.75, 0.3), SPARK2 = new THREE.Color(1, 0.95, 0.7);
+const _w = new THREE.Vector3(), _v = new THREE.Vector3(), _r = new THREE.Vector3();
 const _o = {};
 const _p = new THREE.Vector3(), _q = new THREE.Vector3(), _f = new THREE.Vector3();
 const _n = new THREE.Vector3(), _x = new THREE.Vector3(), _z = new THREE.Vector3();

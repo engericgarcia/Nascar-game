@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from './vendor/BufferGeometryUtils.js';
 import { MILE } from './data.js';
+import { buildStands, buildSurroundings, buildLogos } from './scenery.js';
 
 const DEG = Math.PI / 180;
 
@@ -262,7 +263,8 @@ export class Track {
     const matAsphalt = new THREE.MeshLambertMaterial({ map: asphaltTex });
     const matApron = new THREE.MeshLambertMaterial({ map: makeConcrete(), color: 0xbdbdb8 });
     const matPit = new THREE.MeshLambertMaterial({ map: asphaltTex, color: 0x9a9a9a });
-    const matGrass = new THREE.MeshLambertMaterial({ color: this.def.grass });
+    const grassTex = makeGrass(this.def.grass);
+    const matGrass = new THREE.MeshLambertMaterial({ map: grassTex });
     const matWhite = new THREE.MeshBasicMaterial({ color: 0xf2f2f2, polygonOffset: true, polygonOffsetFactor: -2 });
     const matYellow = new THREE.MeshBasicMaterial({ color: 0xf2c91a, polygonOffset: true, polygonOffsetFactor: -2 });
     const matGroove = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
@@ -343,6 +345,7 @@ export class Track {
     ground.scale.set(maxx - minx + 2400, maxz - minz + 2400, 1);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(cx, -0.4, cz);
+    grassTex.repeat.set((maxx - minx + 2400) / 24, (maxz - minz + 2400) / 24);
     g.add(ground);
     // estacionamento fora da pista (cinza)
     const lot = new THREE.Mesh(new THREE.RingGeometry(this.radius + 90, this.radius + 260, 48), new THREE.MeshLambertMaterial({ color: 0x7c7c78 }));
@@ -358,8 +361,11 @@ export class Track {
     g.add(this.sweep(-1, 1, 1, s => [[inner - this.apron, this.heightAt(s, inner - this.apron) + 0.03, 0], [outer, this.heightAt(s, outer) + 0.03, 12]], matChk, 2));
     this.buildFlagStand(g);
 
-    // arquibancadas
-    this.buildStands(g, quality);
+    // arquibancadas em degraus, árvores, estacionamento, motorhomes, logotipo
+    buildStands(this, g, quality);
+    buildSurroundings(this, g, quality);
+    buildLogos(this, g);
+    this.buildAds(g);
 
     // torres de iluminação e prédio da torre de controle
     this.buildInfield(g);
@@ -511,45 +517,7 @@ export class Track {
     this.flagLight.material.color.setHex(c);
   }
 
-  buildStands(g, quality) {
-    const outer = this.W / 2 + 1.6;
-    const crowd = makeCrowd();
-    const matCrowd = new THREE.MeshLambertMaterial({ map: crowd });
-    const matBack = new THREE.MeshLambertMaterial({ color: 0x9a9fa6 });
-    const matRoof = new THREE.MeshLambertMaterial({ color: 0x5b6470 });
-    // trechos: sempre na reta da frente; em pista curta, em volta toda
-    const pieces = [];
-    const short = this.L < 1200;
-    if (short) pieces.push([0, this.L, 26, 30]);
-    else {
-      pieces.push([this.pitStart - 150, this.pitStart + this.pitLen + 150, 45, 38]);
-      // um pouco na reta oposta
-      pieces.push([this.L / 2 - this.S * 0.35, this.L / 2 + this.S * 0.35, 18, 14]);
-    }
-    for (const [a, b, depth, height] of pieces) {
-      const d0 = outer + 6;
-      const d1 = d0 + depth;
-      const slope = height / depth;
-      g.add(this.sweep(a, b, 4, s => {
-        const y0 = this.heightAt(s, this.W / 2) + 2.5;
-        return [[d0, y0, 0], [d1, y0 + depth * slope, depth / 10]];
-      }, matCrowd, 12));
-      // parede de trás e cobertura
-      g.add(this.sweep(a, b, 4, s => {
-        const y0 = this.heightAt(s, this.W / 2) + 2.5;
-        return [[d1, y0 + depth * slope, 0], [d1, -0.4, 1]];
-      }, matBack, 20, true));
-      g.add(this.sweep(a, b, 4, s => {
-        const y0 = this.heightAt(s, this.W / 2) + 2.5;
-        return [[d0 - 0.2, y0, 0], [d0 - 0.2, -0.4, 1]];
-      }, matBack, 20, true));
-      if (!short && quality > 0) {
-        g.add(this.sweep(a, b, 4, s => {
-          const y0 = this.heightAt(s, this.W / 2) + 2.5 + depth * slope + 6;
-          return [[d0 + depth * 0.45, y0 - 1.5, 0], [d1 + 1, y0, 1]];
-        }, matRoof, 20, true));
-      }
-    }
+  buildAds(g) {
     // placas de publicidade no muro da reta
     const ads = makeAdsTex();
     const matAds = new THREE.MeshBasicMaterial({ map: ads, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 });
@@ -650,12 +618,41 @@ function canvasTex(w, h, draw, repeat) {
 }
 
 function makeAsphalt() {
-  return canvasTex(128, 128, (x, w, h) => {
-    x.fillStyle = '#5a5b5e'; x.fillRect(0, 0, w, h);
+  // asfalto com grão, emendas e manchas de borracha ao longo da pista
+  return canvasTex(256, 256, (x, w, h) => {
+    x.fillStyle = '#56575b'; x.fillRect(0, 0, w, h);
     const img = x.getImageData(0, 0, w, h);
     for (let i = 0; i < img.data.length; i += 4) {
-      const n = (Math.random() - 0.5) * 34;
-      img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+      const n = (Math.random() - 0.5) * 30 + (Math.random() < 0.02 ? 25 : 0);
+      img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n + 1;
+    }
+    x.putImageData(img, 0, 0);
+    // riscos de borracha no sentido da pista (v)
+    for (let i = 0; i < 40; i++) {
+      x.fillStyle = `rgba(20,20,22,${Math.random() * 0.12})`;
+      x.fillRect(Math.random() * w, 0, 1 + Math.random() * 3, h);
+    }
+    // remendos
+    for (let i = 0; i < 3; i++) {
+      x.fillStyle = `rgba(30,30,32,${0.12 + Math.random() * 0.1})`;
+      x.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 50, 30 + Math.random() * 80);
+    }
+    // emenda longitudinal
+    x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(w / 2, 0, 1, h);
+  }, true);
+}
+function makeGrass(base) {
+  // grama cortada em faixas (como nos gramados dos autódromos)
+  const c = new THREE.Color(base);
+  const c1 = '#' + c.clone().multiplyScalar(1.12).getHexString();
+  const c2 = '#' + c.clone().multiplyScalar(0.88).getHexString();
+  return canvasTex(128, 128, (x, w, h) => {
+    x.fillStyle = c1; x.fillRect(0, 0, w, h);
+    x.fillStyle = c2; x.fillRect(0, 0, w / 2, h);
+    const img = x.getImageData(0, 0, w, h);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 22;
+      img.data[i] += n * 0.6; img.data[i + 1] += n; img.data[i + 2] += n * 0.4;
     }
     x.putImageData(img, 0, 0);
   }, true);
@@ -671,15 +668,26 @@ function makeConcrete() {
   }, true);
 }
 function makeWallTex(pit) {
-  return canvasTex(64, 64, (x, w, h) => {
-    x.fillStyle = '#f0f0ee'; x.fillRect(0, 0, w, h);
+  // muro SAFER: tubos de aço com espuma, parafusos, faixa colorida e marcas de pneu
+  return canvasTex(128, 64, (x, w, h) => {
+    x.fillStyle = '#f2f2f0'; x.fillRect(0, 0, w, h);
+    if (!pit) {
+      for (let i = 0; i < 4; i++) {
+        const y = h * (0.1 + i * 0.16);
+        const g = x.createLinearGradient(0, y, 0, y + h * 0.13);
+        g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#e2e2e0'); g.addColorStop(1, '#b9b9b7');
+        x.fillStyle = g; x.fillRect(0, y, w, h * 0.13);
+      }
+      x.fillStyle = '#9a9a98';
+      for (let i = 8; i < w; i += 32) for (let j = 0; j < 4; j++) x.fillRect(i, h * (0.15 + j * 0.16), 2, 2);
+      x.fillStyle = 'rgba(0,0,0,0.3)'; x.fillRect(w - 1, 0, 1, h * 0.72);
+    }
     x.fillStyle = pit ? '#c8102e' : '#1b3f9c';
-    x.fillRect(0, h * 0.78, w, h * 0.12);
-    x.fillStyle = 'rgba(0,0,0,0.25)'; x.fillRect(w - 1, 0, 1, h);
-    // marcas de pneu
-    for (let i = 0; i < 6; i++) {
-      x.fillStyle = `rgba(20,20,20,${Math.random() * 0.25})`;
-      x.fillRect(Math.random() * w, h * (0.35 + Math.random() * 0.3), 12 + Math.random() * 20, 3);
+    x.fillRect(0, h * 0.76, w, h * 0.14);
+    x.fillStyle = '#d0d0cc'; x.fillRect(0, h * 0.9, w, h * 0.1);
+    for (let i = 0; i < 8; i++) {
+      x.fillStyle = `rgba(20,20,20,${Math.random() * 0.3})`;
+      x.fillRect(Math.random() * w, h * (0.3 + Math.random() * 0.35), 20 + Math.random() * 40, 2 + Math.random() * 3);
     }
   }, true);
 }
