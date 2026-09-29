@@ -13,7 +13,7 @@ export const TRACKS = [
   {
     id: 'superspeedway', name: 'Coastal Superspeedway', ref: 'inspirada em Daytona',
     miles: 2.5, kind: 'Superspeedway', bankTurn: 31, bankStraight: 3, bankTri: 18,
-    width: 18, triOval: true, power: 0.7,        // placa restritora
+    width: 18, triOval: true, power: 0.8,        // espaçador cônico (restrição de potência)
     sky: 0x7fb0f0, grass: 0x6f8a4a, desc: '2,5 mi · curvas 31° · tri-oval 18°'
   },
   {

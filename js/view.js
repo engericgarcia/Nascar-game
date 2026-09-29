@@ -128,6 +128,16 @@ export class View {
       // leve balanço com a velocidade
       this.carMatrix(c.s, c.d, c.psi, lift + Math.sin(sim.t * 30 + i) * 0.004 * Math.min(1, c.v / 30), m.matrix);
       m.matrixWorldNeedsUpdate = true;
+      // dano visível: lataria suja/amassada escurece, suspensão torta inclina e faz o carro andar de lado
+      if (c.dmg && m.userData.dmgShown !== Math.round(c.damage * 20) + (c.flat + 1) * 100) {
+        m.userData.dmgShown = Math.round(c.damage * 20) + (c.flat + 1) * 100;
+        const k = 1 - Math.min(0.45, c.dmg.aero * 0.45);
+        m.userData.mat.color.setRGB(k, k * 0.98, k * 0.96);
+        const lod = m.children[1];
+        lod.rotation.z = -c.dmg.susp * 0.05;
+        lod.rotation.y = c.dmg.susp * 0.06;
+        lod.position.y = c.flat >= 0 ? -0.12 : 0;
+      }
     }
     const pc = sim.paceCar;
     this.pace.visible = pc.active;

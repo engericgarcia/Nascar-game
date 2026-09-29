@@ -5,6 +5,7 @@
    ============================================================ */
 import { finishPoints, stagePoints } from './data.js';
 import { CAR_LEN, CAR_WID } from './cars.js';
+import { initCar, axleGrip, tireStep, checkFlat, addDamage, destroyed, service, repairTime, TIRE_LIFE } from './carphys.js';
 
 const G = 9.81;
 const CD = 0.00045;           // arrasto aerodinâmico (por massa)
@@ -35,7 +36,9 @@ export class RaceSim {
     const realFuel = { superspeedway: 38, intermediate: 55, shorttrack: 120, paperclip: 100 }[track.def.id] || 50;
     this.fuelLaps = opts.fuel === 'real' ? realFuel : Math.max(4, Math.round(opts.laps * 0.55));
     if (opts.fuel === 'off') this.fuelLaps = 1e6;
-    this.tireLaps = opts.fuel === 'off' ? 1e6 : this.fuelLaps * 1.6;
+    // vida dos pneus: no modo real usa a vida típica de cada pista
+    this.tireLaps = opts.fuel === 'off' ? 1e6 : opts.fuel === 'real' ? (TIRE_LIFE[track.def.id] || 70) : Math.max(5, this.fuelLaps * 1.3);
+    this.wearK = 0.75 / (this.tireLaps * track.L * 1.0);   // RF (o que mais trabalha) chega a ~25% em tireLaps voltas
 
     // perfis de velocidade para 3 faixas
     const W = track.W;
@@ -75,6 +78,7 @@ export class RaceSim {
         startPos: i + 1, pos: i + 1, pitStops: 0, dnf: false
       };
     });
+    this.cars.forEach(initCar);
     this.player = this.cars.find(c => c.player);
     this.n = this.cars.length;
 
@@ -158,8 +162,8 @@ export class RaceSim {
       }
       // assistência de freio: não deixa passar do limite da curva
       if (input.brakeAssist) {
-        const grip = (0.88 + 0.12 * c.tire) * (1 - 0.15 * c.damage);
-        const lim = Math.min(this.profileAt(c, c.s + c.v * 0.35, c.d), this.profileAt(c, c.s, c.d)) * Math.sqrt(grip) * 1.005;
+        const grip = c.gripEff;
+        const lim = Math.min(this.profileAt(c, c.s + c.v * 0.35, c.d), this.profileAt(c, c.s, c.d)) * Math.pow(grip, 0.9) * 0.995;   // em pista inclinada a velocidade de curva sente ~grip^0.85
         const e = lim - c.v;
         if (e < 0.5) c.throttle = Math.min(c.throttle, Math.max(0, 0.3 + e * 0.5));
         if (e < -0.8) c.brake = Math.max(c.brake, Math.min(1, -e * 0.4));
@@ -195,7 +199,7 @@ export class RaceSim {
   /* velocidade máxima que a aderência permite na faixa atual (e um pouco à frente) */
   gripSpeed(c) {
     const tr = this.track;
-    const grip = (0.88 + 0.12 * c.tire) * (1 - 0.15 * c.damage);
+    const grip = c.gripEff;
     let vm = 200;
     for (const ahead of [0, 12, 28]) {
       const s = c.s + ahead;
@@ -231,17 +235,18 @@ export class RaceSim {
 
   aiControl(c, dt) {
     const tr = this.track, W = tr.W;
-    const grip = (0.88 + 0.12 * c.tire) * (1 - 0.15 * c.damage);
-    let vT = Math.min(this.profileAt(c, c.s + c.v * 0.4, c.d), this.profileAt(c, c.s, c.d)) * c.pace * Math.sqrt(grip);
+    const grip = c.gripEff;
+    let vT = Math.min(this.profileAt(c, c.s + c.v * 0.4, c.d), this.profileAt(c, c.s, c.d)) * c.pace * Math.pow(grip, 0.9);
 
     // tráfego à frente
     let ahead = null, gapA = 1e9;
     let leftBusy = false, rightBusy = false;
     for (const o of this.cars) {
-      if (o === c || o.mode === 'dnf' || o.mode === 'pit') continue;
+      // carros entrando/saindo do box ainda na pista também contam como obstáculo
+      if (o === c || o.mode === 'dnf' || (o.mode === 'pit' && o.d < -W / 2 - 1.5)) continue;
       const ds = tr.delta(c.s, o.s);
       const dd = o.d - c.d;
-      if (ds > 0 && ds < 45 && Math.abs(dd) < 2.3 && ds < gapA) { gapA = ds; ahead = o; }
+      if (ds > 0 && ds < 90 && Math.abs(dd) < 2.3 && ds < gapA) { gapA = ds; ahead = o; }
       if (ds > -8 && ds < 14) {
         if (dd < -0.5 && dd > -4.6) leftBusy = true;
         if (dd > 0.5 && dd < 4.6) rightBusy = true;
@@ -259,9 +264,11 @@ export class RaceSim {
         if (canIn && (!canOut || Math.random() < 0.55)) { c.dTarget = inside; c.passT = 4; }
         else if (canOut) { c.dTarget = outside; c.passT = 4; }
       }
-      // sem espaço: tira o pé
-      if (gapA < 16 && Math.abs(ahead.d - c.d) < 2.2) {
-        vT = Math.min(vT, ahead.v + (gapA - 7) * 0.45);
+      // sem espaço: freia a tempo de não bater (distância de frenagem até o carro da frente)
+      if (Math.abs(ahead.d - c.d) < 2.2 && c.passT <= 3.5) {
+        const room = Math.max(0, gapA - CAR_LEN - 2.5);
+        const safe = Math.sqrt(ahead.v * ahead.v + 2 * 8 * room);
+        vT = Math.min(vT, safe, gapA < 16 ? ahead.v + (gapA - 7) * 0.45 : 999);
       }
     } else if (c.passT <= 0) {
       // volta para a linha preferida quando der
@@ -294,6 +301,7 @@ export class RaceSim {
     const left = this.laps - c.lap;
     if (!c.pitReq && c.fuel < lapFuel * 1.4 && left * lapFuel > c.fuel) { c.pitReq = true; c.service = 'four'; }
     if (!c.pitReq && c.damage > 0.45) { c.pitReq = true; c.service = 'four'; }
+    if (!c.pitReq && c.tire < 0.1 && left > 3) { c.pitReq = true; c.service = 'four'; }
   }
 
   /* segue o carro da frente (bandeira amarela e volta de apresentação) */
@@ -375,7 +383,13 @@ export class RaceSim {
     if (p.phase === 'in') {
       // desce para o apron e freia até a velocidade do box
       const dist = Math.max(0, toStart);
-      const vT = Math.sqrt(tr.pitSpeed * tr.pitSpeed + 2 * 9 * dist);
+      let vT = Math.sqrt(tr.pitSpeed * tr.pitSpeed + 2 * 9 * dist);
+      // não bate em quem está entrando no box na frente
+      for (const o of this.cars) {
+        if (o === c || o.dnf) continue;
+        const ds = tr.delta(c.s, o.s);
+        if (ds > 0 && ds < 60 && Math.abs(o.d - c.d) < 2.4) vT = Math.min(vT, Math.sqrt(o.v * o.v + 2 * 8 * Math.max(0, ds - CAR_LEN - 2)));
+      }
       const t = Math.max(0, Math.min(1, 1 - (dist - 20) / 140));
       this.steerTo(c, c.d + (apron - c.d) * t, 4);
       this.speedTo(c, vT);
@@ -401,7 +415,7 @@ export class RaceSim {
         c.v = 0; c.throttle = 0; c.brake = 1;
         const t4 = c.service === 'four' ? 10.4 + Math.random() * 1.4 : c.service === 'two' ? 5.6 + Math.random() : 0;
         const tf = (1 - c.fuel) * 9.5 + 1.2;
-        const rep = c.damage > 0.15 ? 5 + c.damage * 8 : 0;
+        const rep = repairTime(c);
         p.total = p.timer = Math.max(t4, tf) + rep;
         c.pitStops++;
         if (c.player) this.msg('Parada: ' + serviceName(c.service), '#6cf', 'Parado. ' + serviceName(c.service));
@@ -413,9 +427,7 @@ export class RaceSim {
       p.timer -= dt;
       if (p.timer <= 0) {
         c.fuel = 1;
-        if (c.service === 'four') c.tire = 1;
-        else if (c.service === 'two') c.tire = Math.min(1, 0.5 + c.tire * 0.5 + 0.25);
-        if (c.damage > 0.15) c.damage *= 0.35;
+        service(c, c.service);
         p.phase = 'out';
         if (c.player) this.msg('Vai, vai, vai!', '#3f3', 'Vai, vai, vai!');
       }
@@ -453,7 +465,6 @@ export class RaceSim {
     let bank = onAsphalt ? o.bank : 0;
     const grass = c.d < -W / 2 - tr.apron && !(inPitArea && c.d > tr.pitInner - 1 && c.d < tr.pitOuter + 0.5) && c.mode !== 'pit';
     let surf = grass ? 0.55 : 1;
-    const grip = (0.88 + 0.12 * c.tire) * (1 - 0.15 * c.damage) * surf;
     const v = c.v;
 
     if (c.mode === 'spin') {
@@ -468,7 +479,7 @@ export class RaceSim {
       if (c.v < 25) c.d -= Math.sin(bank) * (25 - c.v) * 0.08 * dt;
       this.walls(c, dt);
       if (c.v < 1.5) {
-        c.mode = c.damage >= 1 ? 'dnf' : 'recover';
+        c.mode = destroyed(c) ? 'dnf' : 'recover';
         c.recoverT = 2.2;
         if (c.mode === 'dnf') this.retire(c);
       }
@@ -487,16 +498,30 @@ export class RaceSim {
 
     c.contact *= Math.exp(-5 * dt);
     c.scrape = (c.scrape || 0) * Math.exp(-8 * dt);
-    // --- longitudinal ---
-    const powerK = this.track.def.power * c.power * (1 - 0.25 * c.damage);
-    const fe = c.throttle * Math.min(8.2, PWR * powerK / Math.max(v, 1));
-    const drag = CD * v * v * (1 - c.draft) + ROLL + (grass ? 6 : 0);
-    const fb = c.brake * BRAKE * Math.min(1, grip + 0.1);
+    // --- aderência: pneus de cada eixo + pressão aerodinâmica ---
+    const [mf, mr] = axleGrip(c);
+    const dn = v * v / 60000;                                   // quanto a pressão aerodinâmica ajuda
+    const aeroLoss = 0.5 * c.dmg.aero;
+    const muF = mf * surf * (1 + dn * Math.max(0, 1 - c.dirty - aeroLoss));   // ar sujo tira pressão da frente
+    const muR = mr * surf * (1 + dn * Math.max(0, 1 - 0.5 * c.side - aeroLoss * 0.6));
+    const mu = Math.min(muF, muR) + 0.25 * Math.abs(muF - muR);
+    c.balance = muR - muF;                                      // >0 sai de frente (tight), <0 sai de traseira (loose)
+    c.gripF = muF / (1 + dn); c.gripR = muR / (1 + dn);
+    c.gripEff = mu / (1 + dn);
+
+    // --- longitudinal: potência, arrasto (vácuo), freio ---
+    c.waterT += ((190 + (c.draft > 0.1 ? c.draft * 160 : 0) + c.dmg.engine * 85 + (v < 5 ? 25 : 0)) - c.waterT) * dt * 0.06;   // colado atrás, a grade pega menos ar e a água esquenta
+    const hotLoss = c.waterT > 265 ? Math.min(0.25, (c.waterT - 265) * 0.004) : 0;
+    const powerK = this.track.def.power * c.power * (1 - 0.3 * c.dmg.engine - hotLoss);
+    const massK = 1 / (1 + 0.035 * c.fuel);                     // tanque cheio pesa ~55 kg
+    const fe = c.throttle * Math.min(8.2 * Math.min(1, mr + 0.1), PWR * powerK * massK / Math.max(v, 1));
+    const dragK = Math.max(0.55, 1 - c.draft - c.push + c.side) * (1 + 0.28 * c.dmg.aero);
+    const drag = CD * v * v * dragK + ROLL * (c.flat >= 0 ? 4 : 1) + (grass ? 6 : 0);
+    const fb = c.brake * BRAKE * Math.min(1, Math.min(mf, mr) * surf + 0.1);
 
     // --- lateral: limite de aderência com inclinação ---
     let cMaxL, cMaxR;
     {
-      const mu = 1.0 * grip * (1 + v * v / 60000);
       const tb = Math.tan(bank);
       const aL = G * (mu + tb) / Math.max(0.15, 1 - mu * tb);
       const aR = G * Math.max(0.05, mu - tb) / (1 + mu * tb);
@@ -504,6 +529,8 @@ export class RaceSim {
       cMaxL = aL / v2; cMaxR = aR / v2;
     }
     let cc = c.cDes;
+    // suspensão torta puxa para um lado; pneu furado puxa para o lado dele
+    cc += (c.dmg.susp * 0.0012 + (c.flat === 1 || c.flat === 3 ? -0.002 : c.flat >= 0 ? 0.002 : 0)) * (v > 5 ? 1 : 0);
     let over = 0;
     if (cc > cMaxL) { over = (cc - cMaxL) / cMaxL; cc = cMaxL; }
     else if (cc < -cMaxR) { over = (-cMaxR - cc) / cMaxR; cc = -cMaxR; }
@@ -512,14 +539,34 @@ export class RaceSim {
 
     c.v = Math.max(0, v + (fe - drag - fb - scrub) * dt);
     const sdot = c.v * Math.cos(c.psi) / (1 + c.d * k);
-    c.psi += (c.v * cc - k * sdot) * dt;
+    let yaw = c.v * cc;
+    // traseira solta (loose): passando do limite, a traseira escorrega e o carro gira para dentro
+    if (over > 0 && c.balance < -0.02) {
+      yaw += over * Math.min(1, -c.balance * 8) * c.v * cMaxL * 0.9;
+      if (over > 0.5 && c.v > 30 && this.state === 'green' && Math.random() < dt * over * 1.5) this.startSpin(c, 1, 'loose');
+    }
+    c.psi += (yaw - k * sdot) * dt;
     c.s = tr.wrap(c.s + sdot * dt);
     c.d += -c.v * Math.sin(c.psi) * dt;
 
-    // consumo e desgaste
-    const lat = c.v * c.v * Math.abs(cc) / Math.max(1, (cc >= 0 ? cMaxL : cMaxR) * c.v * c.v);
+    // consumo, pneus e motor
+    const u = Math.min(1, Math.abs(cc) / Math.max(1e-6, cc >= 0 ? cMaxL : cMaxR));
     c.fuel = Math.max(0, c.fuel - c.throttle * c.v * dt / (this.fuelLaps * tr.L) * 1.12);
-    c.tire = Math.max(0, c.tire - c.v * dt / (this.tireLaps * tr.L) * (0.45 + lat * 0.9 + over * 2));
+    tireStep(c, dt, c.v, u, over, c.brake, c.throttle, this.wearK);
+    const fl = checkFlat(c, dt);
+    if (fl >= 0) {
+      const nm = ['dianteiro esquerdo', 'dianteiro direito', 'traseiro esquerdo', 'traseiro direito'][fl];
+      if (c.player) this.msg(`Pneu ${nm} furou!`, '#ff5a3c', 'Pneu furado! Vem para o box!');
+      else c.pitReq = true;
+      if (fl === 1 && c.v > 40 && Math.random() < 0.6) this.startSpin(c, -1, 'flat');   // RF estourado leva para o muro
+    }
+    if (c.waterT > 280) addDamage(c, 0, 0, (c.waterT - 280) * 0.0005 * dt);   // superaquecido desgasta o motor aos poucos
+    if (c.dmg.engine >= 1 && c.mode !== 'dnf') {
+      this.msg(`#${c.info.num} quebrou o motor`, '#ff9a3c', c.player ? 'Quebrou o motor.' : null);
+      this.retire(c);
+      if (this.state === 'green' && this.cautionPending < 0) this.cautionPending = 1.5;   // óleo na pista
+      return;
+    }
 
     this.walls(c, dt);
     this.engine(c, c.throttle);
@@ -536,9 +583,9 @@ export class RaceSim {
         c.scrape = 1;
         if (c.mode === 'spin') {
           c.slide = -c.slide * 0.3; c.v *= 0.75;
-          c.damage = Math.min(1, c.damage + vn * 0.03);
+          addDamage(c, vn * 0.028, vn * 0.022, 0);
         } else if (vn > 8.5 && this.state === 'green') {
-          c.damage = Math.min(1, c.damage + vn * 0.035);
+          addDamage(c, vn * 0.03, vn * 0.025, vn > 15 ? 0.1 : 0);
           c.v = Math.max(0, c.v - vn * 0.6);
           this.startSpin(c, -1, 'wall');
           this.hit = { car: c, power: vn };
@@ -546,7 +593,7 @@ export class RaceSim {
           c.v = Math.max(0, c.v - vn * 0.9 - 4 * dt);
           c.psi = 0.012;
           c.scrape = 1;
-          c.damage = Math.min(0.95, c.damage + vn * 0.006);
+          addDamage(c, vn * 0.008, vn > 3 ? vn * 0.006 : 0, 0);
           c.contact = Math.max(c.contact, vn / 8);
           if (c.player) this.hit = { car: c, power: vn };
         }
@@ -586,7 +633,7 @@ export class RaceSim {
     c.mode = 'spin';
     c.slide = c.psi;
     c.spinRate = (dir || (Math.random() < 0.5 ? -1 : 1)) * (4 + Math.random() * 3);
-    c.damage = Math.min(1, c.damage + 0.12);
+    addDamage(c, 0.06, 0.03, 0);
     if (c.pit) { c.pit = null; }
     if (this.state === 'green' && this.cautionPending < 0) this.cautionPending = 2.0;
     if (c.player) this.msg('Rodou!', '#ff5a3c', 'Segura, segura!');
@@ -603,7 +650,7 @@ export class RaceSim {
     const tr = this.track;
     const calm = this.state !== 'green';     // sob amarela ninguém se machuca
     const cars = this.cars;
-    for (const c of cars) c.draft = 0;
+    for (const c of cars) { c.draft = 0; c.push = 0; c.side = 0; c.dirty = 0; }
     const n = cars.length;
     for (let i = 0; i < n; i++) {
       const a = cars[i];
@@ -614,16 +661,28 @@ export class RaceSim {
         let ds = tr.delta(a.s, b.s);           // b à frente de a se > 0
         const dd = b.d - a.d;
         const ads = Math.abs(ds), add = Math.abs(dd);
-        // vácuo: quem vem atrás ganha, o da frente ganha um pouco com o empurrão
-        if (ads < 45 && add < 2.2 && a.mode !== 'pit' && b.mode !== 'pit') {
+        if (ads < 90 && a.mode !== 'pit' && b.mode !== 'pit') {
           const back = ds > 0 ? a : b, front = ds > 0 ? b : a;
-          const f = 0.34 * (1 - ads / 45);
-          back.draft = Math.max(back.draft, f);
-          if (ads < 9) front.draft = Math.max(front.draft, 0.07);
+          const gap = Math.max(0, ads - CAR_LEN);                 // de para-choque a para-choque
+          const overlap = Math.max(0, 1 - add / 2.3);              // alinhados na mesma faixa
+          if (overlap > 0) {
+            // vácuo: até ~17% menos arrasto colado (+10 mph), some por volta de 80 m
+            back.draft = Math.max(back.draft, 0.17 * Math.exp(-gap / 26) * overlap);
+            // o de trás também "empurra" o ar do da frente (fila de 3 anda mais que 2)
+            front.push = Math.max(front.push, 0.05 * Math.exp(-gap / 7) * overlap);
+            // ar sujo: a frente de quem vem atrás perde pressão aerodinâmica (mais perto = pior)
+            back.dirty = Math.max(back.dirty, 0.5 * Math.exp(-gap / 18) * overlap);
+          }
+          // vácuo lateral: lado a lado, o de trás com o bico na traseira do outro freia o da frente
+          if (add > 1.9 && add < 4.2 && ads < CAR_LEN * 0.95 && ads > CAR_LEN * 0.25) {
+            front.side = Math.max(front.side, 0.06);
+            back.draft = Math.max(back.draft, 0.04);
+          }
         }
         if (ads > CAR_LEN || add > CAR_WID + 0.05) continue;
         if ((a.mode === 'pit') !== (b.mode === 'pit') && (a.d < tr.pitOuter || b.d < tr.pitOuter)) continue;
         const ox = CAR_LEN - ads, oy = CAR_WID + 0.05 - add;
+        const calmPair = calm || (a.mode === 'pit' && b.mode === 'pit');   // toque no box a 55 mph não amassa
         if (oy / CAR_WID < ox / CAR_LEN) {
           // batida lateral
           const sgn = dd >= 0 ? 1 : -1;
@@ -635,9 +694,11 @@ export class RaceSim {
             if (a.mode === 'race') a.psi += sgn * 0.02;
             if (b.mode === 'race') b.psi -= sgn * 0.02;
             a.contact = Math.max(a.contact, rel / 6); b.contact = Math.max(b.contact, rel / 6);
-            if (!calm) {
-              a.damage = Math.min(0.95, a.damage + rel * 0.004);
-              b.damage = Math.min(0.95, b.damage + rel * 0.004);
+            if (!calmPair) {
+              // toque lateral: amassa a lateral; forte entorta a suspensão
+              const ae = Math.max(0, rel - 1.5) * 0.006, su = Math.max(0, rel - 5) * 0.012;
+              addDamage(a, ae, su, 0);
+              addDamage(b, ae, su, 0);
             }
             if (hard && !calm && Math.random() < 0.3) this.startSpin(Math.random() < 0.5 ? a : b, 0, 'side');
             if (a.player || b.player) this.hit = { car: a.player ? a : b, power: rel };
@@ -651,7 +712,12 @@ export class RaceSim {
           if (dv > 0) {
             back.v -= dv * 0.55; front.v += dv * 0.4;
             back.contact = Math.max(back.contact, dv / 8); front.contact = Math.max(front.contact, dv / 8);
-            if (!calm) back.damage = Math.min(0.95, back.damage + dv * 0.006);
+            if (!calmPair) {
+              // batida de trás: bico e radiador de quem bate; traseira/aerofólio de quem apanha
+              // empurrão leve (bump draft) não amassa; pancada forte amassa bico e radiador
+              addDamage(back, Math.max(0, dv - 2.5) * 0.012, 0, Math.max(0, dv - 7) * 0.02);
+              addDamage(front, Math.max(0, dv - 2.5) * 0.006, 0, 0);
+            }
             // toque desalinhado a alta velocidade: o da frente roda
             if (dv > 9 && add > 0.8 && front.mode === 'race' && !calm) {
               this.startSpin(front, dd * (ds > 0 ? 1 : -1) > 0 ? -1 : 1, 'hook');
@@ -880,4 +946,4 @@ export class RaceSim {
 
 const _o = {};
 function wrapAng(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
-export function serviceName(s) { return s === 'four' ? '4 pneus + gasolina' : s === 'two' ? '2 pneus + gasolina' : 'só gasolina'; }
+export function serviceName(s) { return s === 'four' ? '4 pneus + gasolina' : s === 'two' ? '2 pneus (direita) + gasolina' : 'só gasolina'; }

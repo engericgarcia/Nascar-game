@@ -68,6 +68,37 @@ Nenhum arquivo de imagem ou som: pista, carros, pinturas, painel e ronco do moto
   velocidade e nas batidas.
 - **Menu com corrida ao vivo** rodando no fundo, trocando de câmera.
 
+## Física (com números de corridas reais)
+
+**Vácuo e aerodinâmica**
+- Colado atrás de outro carro: até **17% menos arrasto** (+~10 mph), sumindo por volta de 80 m.
+- O da frente também ganha um pouco com o de trás, então **fila de 3 anda mais que dupla** e o
+  pelotão é mais rápido que um carro sozinho. No superspeedway: sozinho ~181 mph, em pelotão ~190.
+- **Vácuo lateral**: lado a lado, quem está um pouco atrás "rouba" ar e freia o da frente.
+- **Ar sujo**: atrás de outro carro a frente perde pressão aerodinâmica nas curvas e o carro sai de
+  frente (~0,2 s por volta em Charlotte). Quem lidera, em ar limpo, contorna melhor.
+- Empurrão leve (bump draft) passa velocidade sem amassar; pancada forte amassa.
+- Colado no vácuo a grade pega menos ar e a **temperatura da água sobe**.
+
+**Pneus (cada roda separada)**
+- Em oval só se vira à esquerda: o **dianteiro direito gasta e esquenta mais**, o traseiro esquerdo menos.
+- Temperatura e **pressão** sobem com o uso (lado direito ganha ~15 psi numa sequência).
+- **Pneu frio** saindo do box segura menos na primeira volta; superaquecido gasta mais rápido.
+- Queda de tempo calibrada: Charlotte ~1 s no fim da sequência, Bristol ~1 s em 30 voltas,
+  Martinsville ~1,2 s na sequência, superspeedway quase nada.
+- Gasto até a lona o pneu **fura**; o dianteiro direito furado leva o carro para o muro.
+- **2 pneus = só o lado direito**, como na NASCAR.
+- Eixo da frente mais gasto que o de trás = sai de frente; traseira mais gasta = sai de traseira e pode rodar.
+
+**Dano (três partes)**
+- **Aerodinâmica** (lataria, bico, aerofólio): mais arrasto, menos pressão aerodinâmica.
+- **Suspensão** (braço torto): carro anda de lado, perde aderência e **gasta pneu até 3× mais**.
+- **Motor** (radiador amassado ao bater de frente): esquenta, perde potência e pode **quebrar**
+  (e o óleo na pista causa bandeira amarela).
+- No box só dá para **remendar** (fita e massa), como na regra de carro danificado; suspensão demora mais.
+- O carro batido aparece mais sujo, inclinado e andando de lado.
+- Tanque cheio pesa ~55 kg: o carro fica mais rápido conforme gasta gasolina.
+
 ## Som do motor
 
 Sintetizado na hora (sem arquivos), a partir das referências do motor da Cup:
@@ -134,6 +165,7 @@ navegador não carrega abrindo o arquivo direto.)
 | `js/track.js` | traçado do oval, inclinação, pit road e toda a pista 3D (asfalto, muro SAFER, alambrado, arquibancadas, pórtico da bandeira) |
 | `js/cars.js` | modelo do stock car, pinturas, carro-madrinha e equipe de box |
 | `js/sim.js` | física, vácuo, batidas, IA, box, bandeiras, estágios e resultado |
+| `js/carphys.js` | pneus por roda (desgaste, temperatura, pressão, furo), dano aero/suspensão/motor, reparos |
 | `js/view.js` | cena 3D, câmeras (cockpit, perseguição, TV, helicóptero, retrovisor) e efeitos nos carros |
 | `js/env.js` | céu, nuvens, reflexo do ambiente, dirigível, fumaça, faíscas e marcas de pneu |
 | `js/scenery.js` | arquibancadas, torre-placar, box das equipes, árvores, estacionamento, motorhomes |

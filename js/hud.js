@@ -55,6 +55,7 @@ export class Hud {
     if (!cockpit || w > 700) this.drawMap(sim, w - mapSize - 10, mapY, mapSize);
     if (!cockpit) this.drawMiniDash(sim, p, opts, sc);
     if (view.tvLabel) this.drawTvBug(view.tvLabel, w - 10, mapY + mapSize * 0.66 + 32, sc);
+    if (p.tw) this.drawCarStatus(p, w - 10, mapY + mapSize * 0.66 + (view.tvLabel ? 62 : 32) * sc, sc);
     this.drawSpotter(sim, p);
     this.drawPitInfo(sim, p, cockpit);
     this.drawToasts(dt);
@@ -279,6 +280,55 @@ export class Hud {
     x.restore();
   }
 
+  /* ---------------- pneus (desgaste/temperatura/pressão) e dano ---------------- */
+  drawCarStatus(p, xr, y, sc) {
+    const x = this.x;
+    const W = 118 * sc, H = (p.damage > 0.02 ? 108 : 78) * sc;
+    const x0 = xr - W;
+    x.save();
+    roundRectPath(x, x0, y, W, H, 10 * sc);
+    x.fillStyle = 'rgba(8,12,20,0.66)'; x.fill();
+    x.strokeStyle = 'rgba(255,255,255,0.12)'; x.lineWidth = 1; x.stroke();
+    x.fillStyle = '#9fb3d9'; x.font = FI(9 * sc, 800); x.textBaseline = 'top';
+    x.fillText('PNEUS', x0 + 8 * sc, y + 5 * sc);
+    // carro visto de cima
+    const cx = x0 + W / 2, cy = y + 42 * sc;
+    roundRectPath(x, cx - 11 * sc, cy - 26 * sc, 22 * sc, 52 * sc, 8 * sc);
+    x.fillStyle = 'rgba(255,255,255,0.12)'; x.fill();
+    const wheels = [[-1, -1, 0], [1, -1, 1], [-1, 1, 2], [1, 1, 3]];    // LF RF LR RR (esquerda = esquerda)
+    for (const [sx, sy, i] of wheels) {
+      const wx = cx + sx * 17 * sc, wy = cy + sy * 16 * sc;
+      const w = p.tw[i], T = p.tt[i];
+      const col = p.flat === i ? '#111' : w > 0.6 ? '#3fd35a' : w > 0.3 ? '#ffd21f' : '#ff3b2a';
+      const tcol = T < 140 ? '#4aa3ff' : T < 235 ? 'rgba(255,255,255,0.7)' : T < 280 ? '#ff9a3c' : '#ff3b2a';
+      roundRectPath(x, wx - 6 * sc, wy - 10 * sc, 12 * sc, 20 * sc, 3 * sc);
+      x.fillStyle = col; x.fill();
+      x.lineWidth = 2 * sc; x.strokeStyle = tcol; x.stroke();
+      if (p.flat === i) { x.strokeStyle = '#ff3b2a'; x.beginPath(); x.moveTo(wx - 5 * sc, wy - 8 * sc); x.lineTo(wx + 5 * sc, wy + 8 * sc); x.moveTo(wx + 5 * sc, wy - 8 * sc); x.lineTo(wx - 5 * sc, wy + 8 * sc); x.stroke(); }
+      x.fillStyle = '#fff'; x.font = `800 ${9 * sc}px ${F}`; x.textBaseline = 'middle';
+      x.textAlign = sx < 0 ? 'right' : 'left';
+      const tx = wx + sx * 9 * sc;
+      x.fillText(Math.round(w * 100) + '%', tx, wy - 4 * sc);
+      x.fillStyle = '#9fb3d9'; x.font = `700 ${7.5 * sc}px ${F}`;
+      x.fillText(Math.round(T) + '°F', tx, wy + 5 * sc);
+    }
+    x.textAlign = 'left';
+    // dano por parte
+    if (p.damage > 0.02) {
+      const d = p.dmg;
+      const parts = [['AERO', d.aero], ['SUSP', d.susp], ['MOTOR', d.engine]];
+      parts.forEach(([lb, v], k) => {
+        const yy = y + (78 + k * 9.5) * sc;
+        x.fillStyle = '#9fb3d9'; x.font = `800 ${7.5 * sc}px ${F}`; x.textBaseline = 'middle';
+        x.fillText(lb, x0 + 8 * sc, yy);
+        pill(x, x0 + 40 * sc, yy - 2.5 * sc, 68 * sc, 5 * sc, 2.5 * sc); x.fillStyle = 'rgba(255,255,255,0.1)'; x.fill();
+        if (v > 0.005) { pill(x, x0 + 40 * sc, yy - 2.5 * sc, Math.max(5 * sc, 68 * sc * v), 5 * sc, 2.5 * sc); x.fillStyle = v > 0.6 ? '#ff3b2a' : v > 0.25 ? '#ff9a3c' : '#ffd21f'; x.fill(); }
+      });
+    }
+    x.restore();
+    x.textBaseline = 'alphabetic';
+  }
+
   /* ---------------- velocímetro/conta-giros em arco ---------------- */
   drawMiniDash(sim, p, opts, sc) {
     const x = this.x, h = this.h;
@@ -332,11 +382,11 @@ export class Hud {
     // gasolina e pneus
     x.textAlign = 'left';
     miniBar(x, cx - R * 2.15, cy - R * 0.62, R * 0.95, 'GASOLINA', p.fuel, p.fuel < 0.15 ? '#ff3b2a' : GOLD, sc);
-    miniBar(x, cx - R * 2.15, cy - R * 0.12, R * 0.95, 'PNEUS', p.tire, p.tire < 0.35 ? '#ff3b2a' : '#6cf', sc);
-    // chips de vácuo/dano
-    let chipX = cx + R * 1.02;
-    if (p.draft > 0.05) { chip(x, chipX, cy + R * 0.18, 'VÁCUO', '#1e88e5', sc); }
-    if (p.damage > 0.05) chip(x, cx - R * 2.15, cy + R * 0.28, 'DANO ' + Math.round(p.damage * 100) + '%', '#e65100', sc);
+    // vácuo (quanto de arrasto a menos) e ar sujo
+    const dr = Math.round((p.draft + p.push) * 100);
+    if (dr >= 2) chip(x, cx - R * 2.15, cy - R * 0.16, 'VÁCUO -' + dr + '%', '#1e88e5', sc);
+    if (p.dirty > 0.12) chip(x, cx - R * 2.15, cy + R * 0.18, 'AR SUJO', '#8e5a00', sc);
+    else if (p.side > 0.02) chip(x, cx - R * 2.15, cy + R * 0.18, 'VÁCUO LATERAL', '#6a1b9a', sc);
     x.restore();
   }
 
@@ -472,7 +522,7 @@ export class Hud {
     };
     const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
     const oilP = p.rpm > 2000 ? 55 + p.rpm / 400 : 20;
-    const water = 190 + p.draft * 110 + p.damage * 60 + (p.v < 5 ? 20 : 0);
+    const water = p.waterT || 190;
     const oilT = 220 + p.rpm / 300 + p.damage * 30;
     needle(D.g.fuel, p.fuel, 0, 1, A0, A1);
     needle(D.g.tach, p.rpm, 0, 10000, Math.PI * 0.62, Math.PI * 2.1);
