@@ -260,13 +260,13 @@ function updateBoxUI() {
 
 function setPause(v) {
   paused = v;
-  if (v) { show('pause'); Sound.update(sim.player, 0, 0, false); }
+  if (v) { show('pause'); Sound.silence(); }
   else { show(null); lastT = performance.now(); }
 }
 $('btnResume').onclick = () => setPause(false);
 $('btnCamP').onclick = () => { Input.onCam(); };
 $('btnRestart').onclick = () => { running = false; startRace(race); };
-$('btnQuit').onclick = () => { running = false; Sound.update(sim.player, 0, 0, false); show('menu'); startDemo(); };
+$('btnQuit').onclick = () => { running = false; Sound.silence(); show('menu'); startDemo(); };
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && running && !paused) setPause(true); });
 window.addEventListener('resize', () => { if (view) view.resize(); if (hud) hud.resize(); checkRotate(); measure(); });
@@ -292,6 +292,53 @@ async function requestWake() {
 /* ---------------- laço principal ---------------- */
 let spotPrev = { left: false, right: false }, spotClearT = 0;
 let fpsAcc = 0, fpsN = 0;
+
+/* ---------------- som posicional: quem a câmera "ouve" ---------------- */
+const SPEED_SOUND = 343;
+const _cam = { prev: null, vel: [0, 0, 0] };
+function audioFrame(dt) {
+  const cam = view.camera;
+  const cp = cam.position;
+  if (_cam.prev && dt > 0) {
+    const k = Math.min(1, dt * 8);
+    for (let i = 0; i < 3; i++) _cam.vel[i] += (((cp.getComponent(i) - _cam.prev[i]) / dt) - _cam.vel[i]) * k;
+  }
+  _cam.prev = [cp.x, cp.y, cp.z];
+  const e = cam.matrixWorld.elements;          // coluna 0 = direita da câmera
+  const rx = e[0], ry = e[1], rz = e[2];
+  const hear = (c, i) => {
+    const m = view.meshes[i].matrix.elements;
+    const dx = m[12] - cp.x, dy = m[13] - cp.y, dz = m[14] - cp.z;
+    const dist = Math.max(0.5, Math.hypot(dx, dy, dz));
+    const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+    // velocidade do carro = frente * v
+    const vx = m[8] * c.v - _cam.vel[0], vy = m[9] * c.v - _cam.vel[1], vz = m[10] * c.v - _cam.vel[2];
+    const vr = vx * ux + vy * uy + vz * uz;       // positivo = se afastando
+    const doppler = Math.max(0.6, Math.min(1.6, SPEED_SOUND / (SPEED_SOUND + vr)));
+    const pan = Math.max(-1, Math.min(1, (ux * rx + uy * ry + uz * rz) * 1.3));
+    return { dist, doppler, pan };
+  };
+  const p = sim.player;
+  const pi = sim.cars.indexOf(p);
+  const me = hear(p, pi);
+  const close = view.camMode === 'cockpit' || view.camMode === 'chase';
+  const others = [];
+  sim.cars.forEach((c, i) => {
+    if (c === p || c.dnf || (c.mode === 'dnf')) return;
+    const h = hear(c, i);
+    if (h.dist < 160) others.push({ rpm: c.rpm, throttle: c.throttle, gain: Math.min(1, 9 / h.dist), pan: h.pan, doppler: h.doppler, d: h.dist });
+  });
+  others.sort((a, b) => a.d - b.d);
+  // torcida: mais alta perto da reta dos boxes
+  const rel = track.pitRel(p.s);
+  const crowd = rel < track.pitLen + 150 ? 0.035 : 0.012;
+  return {
+    player: p, cam: view.camMode,
+    near: close ? 1 : Math.min(1, 14 / me.dist),
+    pan: close ? 0 : me.pan, doppler: close ? 1 : me.doppler,
+    others: others.slice(0, 3), crowd
+  };
+}
 
 /* ---------------- corrida de demonstração no fundo do menu ---------------- */
 let demo = null, demoLast = 0;
@@ -349,6 +396,7 @@ function frame(now) {
   for (const e of sim.events) {
     hud.toast(e.text, e.color);
     if (e.speak) Sound.say(e.speak, true);
+    if (/VERDE|verde|quadriculada|venceu/i.test(e.text)) Sound.cheer(4);
     if (/VERDE|verde/.test(e.text)) { hud.greenFlash = true; setTimeout(() => hud && (hud.greenFlash = false), 3000); }
   }
   sim.events.length = 0;
@@ -371,15 +419,7 @@ function frame(now) {
   }
   spotPrev = { left: !!sp.left, right: !!sp.right };
 
-  // som
-  let near = 0, packRpm = 0;
-  const p = sim.player;
-  for (const c of sim.cars) {
-    if (c === p || c.dnf) continue;
-    const ds = Math.abs(track.delta(p.s, c.s));
-    if (ds < 60) { near += 1 - ds / 60; packRpm += c.rpm * (1 - ds / 60); }
-  }
-  Sound.update(p, near, near ? packRpm / near : 0, true);
+  Sound.update(audioFrame(dt));
 
   if (sim.done) finishRace();
 }
@@ -389,7 +429,7 @@ setTimeout(startDemo, 50);
 /* ---------------- resultado ---------------- */
 function finishRace() {
   running = false;
-  Sound.update(sim.player, 0, 0, false);
+  Sound.silence();
   const res = sim.results();
   const me = res.find(r => r.player);
   const def = track.def;

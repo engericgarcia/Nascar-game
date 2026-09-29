@@ -68,6 +68,23 @@ Nenhum arquivo de imagem ou som: pista, carros, pinturas, painel e ronco do moto
   velocidade e nas batidas.
 - **Menu com corrida ao vivo** rodando no fundo, trocando de câmera.
 
+## Som do motor
+
+Sintetizado na hora (sem arquivos), a partir das referências do motor da Cup:
+
+- **V8 de 5,86 L com virabrequim cruzado**, até ~9.800 rpm: 4 explosões por volta, então a nota
+  fundamental é rpm ÷ 15 (≈ 600 Hz a 9.000 rpm).
+- **Ordem de ignição 1‑8‑4‑3‑6‑5‑7‑2**: cada bancada solta pulsos com intervalos desiguais
+  (180‑90‑180‑270°), o “tropeço” que dá o ronco de V8 americano. O jogo monta esses pulsos
+  bancada por bancada, com pequenas diferenças entre cilindros e entre ciclos.
+- **Ressonâncias fixas do escapamento** depois do gerador, para o timbre não afinar no giro alto.
+- **Camadas como nos jogos de corrida**: escape, admissão (só com o pé embaixo), zunido do câmbio
+  de dentes retos, vento, pneu cantando, raspada no muro, torcida.
+- Tirando o pé: escape abafado e **estouros**; **corte na troca de marcha** e **limitador de giro**.
+- **Cockpit** mais abafado e com mais mecânica; nas câmeras externas o som depende da distância.
+- **Carros vizinhos** com **efeito Doppler**, estéreo e volume pela distância (o “vuuum” de quem passa).
+- Batidas com pancada grave e chapa metálica.
+
 ## Controles
 
 | Ação | Celular | Teclado |
