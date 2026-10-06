@@ -210,11 +210,12 @@ export class Track {
   /* s relativo ao início da pit road (0..pitLen dentro dela) */
   pitRel(s) { return this.wrap(s - this.pitStart); }
 
+  /* espaço entre vagas: usa a pit road inteira (sobra lugar para sair em ângulo) */
+  stallSpacing(n) { return Math.max(8, Math.min(16, (this.pitLen - 90) / n)); }
+
   /* vagas: a do pole fica mais perto da saída */
   stallS(i, n) {
-    const usable = this.pitLen - 150;
-    const sp = Math.max(7, Math.min(16, usable / n));
-    return this.wrap(this.pitEnd - 70 - i * sp);
+    return this.wrap(this.pitEnd - 40 - i * this.stallSpacing(n));
   }
 
   /* ---------- perfil de velocidade (usado pela IA) ---------- */
@@ -451,8 +452,7 @@ export class Track {
     const y = -0.3;
     const geos = [];
     const n = field.length;
-    const usable = this.pitLen - 150;
-    const sp = Math.max(7, Math.min(16, usable / n));
+    const sp = this.stallSpacing(n);
     for (let i = 0; i <= n; i++) {
       const s = this.stallS(i, n) + sp / 2;
       geos.push(this.sweepGeo(s - 0.12, s + 0.12, 0.24, ss => [[this.pitInner, y, 0], [this.pitStallD + 2.4, y, 1]], 10));

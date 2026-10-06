@@ -186,13 +186,13 @@ export class RaceSim {
     return dd > 60 && dd < 230;
   }
 
-  steerTo(c, dTarget, maxLat) {
+  steerTo(c, dTarget, maxLat, maxPsi = 0.14) {
     const tr = this.track;
     const v = Math.max(c.v, 1);
     const k = tr.curvAt(c.s);
     const kLane = k / (1 + c.d * k);
     const lat = Math.max(-maxLat, Math.min(maxLat, (dTarget - c.d) * 0.9));
-    const psiT = -Math.max(-0.14, Math.min(0.14, lat / Math.max(v, 6)));
+    const psiT = -Math.max(-maxPsi, Math.min(maxPsi, lat / Math.max(v, maxPsi > 0.2 ? 1.5 : 6)));
     c.cDes = kLane * Math.cos(c.psi) + (psiT - c.psi) * 3.5 / Math.max(v, 5);
   }
 
@@ -399,18 +399,26 @@ export class RaceSim {
       let vT = tr.pitSpeed;
       let dT = tr.pitFast;
       if (toStall < 45) vT = Math.min(vT, Math.sqrt(2 * 5.5 * Math.max(0, toStall - 0.3)));
-      if (toStall < 16) dT = tr.pitStallD;
-      // não bate no carro da frente no box (quem está parado depois da minha vaga não atrapalha)
+      // ainda não está dentro da vaga: continua andando devagar até entrar
+      const parked = Math.abs(c.d - tr.pitStallD) < 1.0;
+      if (!parked && toStall < 6) vT = Math.max(vT, 2.5);
+      // só entra na faixa das vagas no fim, em diagonal (como os carros de verdade)
+      if (toStall < 15) dT = tr.pitStallD;
+      const inFast = Math.abs(c.d - tr.pitFast) < 1.6;
       for (const o of this.cars) {
-        if (o === c || o.mode !== 'pit') continue;
+        if (o === c || o.mode !== 'pit' || !o.pit) continue;
         const ds = tr.delta(c.s, o.s);
-        if (o.pit && o.pit.phase === 'stop' && ds > toStall - 1) continue;
-        if (ds > 0 && ds < 11 && Math.abs(o.d - c.d) < 2.3) vT = Math.min(vT, o.v + (ds - 6.5) * 0.5);
+        if (ds <= 0 || ds > 14) continue;
+        // na faixa de rolagem, quem está parado ou manobrando na faixa das vagas não atrapalha
+        if (inFast && Math.abs(o.d - tr.pitStallD) < 1.8) continue;
+        // parado numa vaga depois da minha também não
+        if (o.pit.phase === 'stop' && ds > toStall - 1) continue;
+        if (Math.abs(o.d - c.d) < 2.3) vT = Math.min(vT, o.v + Math.max(0, ds - 6.5) * 0.6);
       }
-      this.steerTo(c, dT, toStall < 16 ? 4 : 2.2);
+      this.steerTo(c, dT, toStall < 15 ? 5 : 2.2, toStall < 15 ? 0.55 : 0.14);
       this.speedTo(c, Math.max(0, vT));
       c.brake = Math.max(c.brake, c.v > tr.pitSpeed + 0.5 ? 1 : 0);
-      if (toStall < 0.8 && c.v < 2.5) {
+      if (toStall < 0.8 && c.v < 3 && parked) {
         p.phase = 'stop';
         c.v = 0; c.throttle = 0; c.brake = 1;
         const t4 = c.service === 'four' ? 10.4 + Math.random() * 1.4 : c.service === 'two' ? 5.6 + Math.random() : 0;
@@ -420,9 +428,10 @@ export class RaceSim {
         c.pitStops++;
         if (c.player) this.msg('Parada: ' + serviceName(c.service), '#6cf', 'Parado. ' + serviceName(c.service));
       }
-      if (toStall < -3) { p.phase = 'out'; }  // passou da vaga (não deve acontecer)
+      if (toStall < -4) { p.phase = 'stop'; p.total = p.timer = 13; c.pitStops++; }  // passou da vaga: a equipe vai até o carro
     } else if (p.phase === 'stop') {
       c.v = 0; c.throttle = 0; c.brake = 1; c.cDes = 0;
+      c.d += (tr.pitStallD - c.d) * Math.min(1, dt * 3);     // fica bem dentro da vaga
       c.psi *= 0.9;
       p.timer -= dt;
       if (p.timer <= 0) {
@@ -433,12 +442,20 @@ export class RaceSim {
       }
     } else if (p.phase === 'out') {
       let vT = tr.pitSpeed;
+      const inStall = Math.abs(c.d - tr.pitStallD) < 1.8;
       for (const o of this.cars) {
-        if (o === c || o.mode !== 'pit') continue;
+        if (o === c || o.mode !== 'pit' || !o.pit) continue;
         const ds = tr.delta(c.s, o.s);
-        if (ds > 0 && ds < 11 && Math.abs(o.d - c.d) < 2.3) vT = Math.min(vT, o.v + (ds - 6.5) * 0.5);
+        // espera quem vem na faixa de rolagem logo atrás passar antes de sair da vaga
+        if (inStall && ds < 0 && ds > -14 && Math.abs(o.d - tr.pitFast) < 1.6 && o.v > 3 && c.v < 4) { vT = Math.min(vT, 0.5); continue; }
+        if (ds <= 0 || ds > 14) continue;
+        // carros parados nas outras vagas não bloqueiam a saída
+        if (o.pit.phase === 'stop' || Math.abs(o.d - tr.pitStallD) < 1.8) continue;
+        if (Math.abs(o.d - c.d) < 2.3 || (inStall && Math.abs(o.d - tr.pitFast) < 1.6 && ds < 9)) vT = Math.min(vT, o.v + Math.max(0, ds - 6.5) * 0.6);
       }
-      this.steerTo(c, tr.pitFast, 1.6);
+      // sai da vaga esterçando forte, em ângulo, e anda pelo menos devagar
+      this.steerTo(c, tr.pitFast, inStall ? 4 : 1.6, inStall ? 0.6 : 0.14);
+      if (inStall && vT > 0.5) vT = Math.max(vT, 4);
       this.speedTo(c, Math.max(0, vT));
       if (rel > tr.pitLen - 25 && rel < tr.pitLen + 400) { p.phase = 'merge'; p.mergeS = c.s; }
     } else if (p.phase === 'merge') {
@@ -681,6 +698,8 @@ export class RaceSim {
         }
         if (ads > CAR_LEN || add > CAR_WID + 0.05) continue;
         if ((a.mode === 'pit') !== (b.mode === 'pit') && (a.d < tr.pitOuter || b.d < tr.pitOuter)) continue;
+        // carro parado na vaga (com a equipe em volta) não empurra quem está entrando ou saindo
+        if (a.mode === 'pit' && b.mode === 'pit' && ((a.pit && a.pit.phase === 'stop') || (b.pit && b.pit.phase === 'stop'))) continue;
         const ox = CAR_LEN - ads, oy = CAR_WID + 0.05 - add;
         const calmPair = calm || (a.mode === 'pit' && b.mode === 'pit');   // toque no box a 55 mph não amassa
         if (oy / CAR_WID < ox / CAR_LEN) {

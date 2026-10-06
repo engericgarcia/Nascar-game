@@ -1,6 +1,6 @@
 /* Service worker: guarda tudo no aparelho para o jogo abrir sem internet.
    Ao mudar qualquer arquivo, suba a versão do CACHE. */
-const CACHE = 'oval500-v4';
+const CACHE = 'oval500-v5';
 const ASSETS = [
   './', './index.html', './style.css?v=2', './manifest.webmanifest',
   './js/main.js?v=1', './js/data.js', './js/track.js', './js/cars.js', './js/sim.js',
